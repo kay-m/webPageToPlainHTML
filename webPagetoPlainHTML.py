@@ -276,6 +276,10 @@ def convertToPlainHTML(urlDict,outFileName):
     outFile.write(outStr)
     outFile.close()
 
+  #Write out the training </body> and </html> tags
+  with open(outFileName,mode="a") as file:
+    file.write("\n</body></html>")
+    file.close()
 
 # Strting point for the script.
 # Preconditions :
@@ -355,9 +359,15 @@ if __name__ == '__main__':
     # Log number of elements in dictionary
     logger.info("Number of entries in URL File = "+str(len(urlDict.keys())))
 
-    # truncate the contents of output file, if it exists:
+    # truncate the contents of output file, if it exists.
+    # Add the opening <HTML> and <BODY> tags
     try:
       with open(outFileName,"w") as file:
+        str = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">\n'\
+              '<html> \n <head>' \
+              '<title> compilation of Articles from media.radiosai.org '\
+              '</title> \n </head> \n <body>'
+        file.write(str)
         file.close()
     except:
       pass
