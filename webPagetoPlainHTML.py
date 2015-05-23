@@ -35,6 +35,8 @@ import sys
 # convertToPlainHTML() routine below extracts any sub-tag within the <p>
 # element as a separate item. Examples include content within <strong>
 # and <em> tags. We need a way to merge these elements back together.
+# The other option is to use a regex matcher. I am sticking with this
+# approach for now.
 
 # Preconditions :
 #   Param tree points to an XML tree that contains all of the content
