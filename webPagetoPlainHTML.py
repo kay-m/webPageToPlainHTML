@@ -126,8 +126,8 @@ def isEnclosedInAttrs(tree,st,attr):
 # This is the workhorse method that does everything.
 
 # Preconditions:
-#  1. urlDict is a dictionary containing the list of URls to be processed. The
-#     keys are article titles.
+#  1. urlLis is a list of tuples containing the URls to be processed. The
+#     tuples are in the following format : (title,URL)
 #  2. outFileName is a valid file name to be used for the output file.
 
 # Postconditions:
@@ -140,17 +140,20 @@ def isEnclosedInAttrs(tree,st,attr):
 #  3. Errors/Warnings if any, are logged to a log file named
 #     webPageToPlainHTML.log
 #
-def convertToPlainHTML(urlDict,outFileName):
+def convertToPlainHTML(urlList,outFileName):
 
   # Set logger to emit the name of the method for each msg from this method.
   logger = logging.getLogger(__name__)
 
-  for title in urlDict.keys():
+  for item in urlList:
+
+    # Remove the article Number Prefix added to the title
+    title,URL = item[0],item[1]
 
     logger.info("Processing article - " + title)
 
     outStr = "<h1>" + title + "</h1>\n"
-    page = requests.get(urlDict[title])
+    page = requests.get(URL)
 
     # Create a HTML document object
     tree = html.fromstring(page.text)
@@ -167,8 +170,12 @@ def convertToPlainHTML(urlDict,outFileName):
     subtextTag = tree.xpath("//p[@class='paraboldteal']/text()|"\
                             "//p/strong[@class='ArticleBlueHeader']/text()")
 
-    if len(subtextTag) > 0:
-      outStr += "<h2>" + subtextTag[0] + "</h2>\n"
+
+    # Emit this only if it is different from the title.
+    if (len(subtextTag) > 0 ) and \
+       ( subtextTag[0].strip().upper() <> title.upper() ):
+
+      outStr += "<h2>" + subtextTag[0].strip() + "</h2>\n"
 
     # I had originally tried to extract selective <p> tags based on its class
     # attribute. I had to drop this since the articles did not maintain a
@@ -208,8 +215,10 @@ def convertToPlainHTML(urlDict,outFileName):
       if (treeHasParaStartingWith(tree,paragraphTags[i]) == 0):
           removeElements.append(i)
 
-          if lastSeenParaIndex > -1:
-            # Check of element is withing <stron> or <em> elements. If yes,
+          # Sanity check that there is indeed an enclosing paragraph and
+          # that there is some text inside the element.
+          if (lastSeenParaIndex > -1) and (len(paragraphTags[i].strip()) > 0):
+            # Check of element is withing <strong> or <em> elements. If yes,
             # add those tags to retain formatting.
             if (isEnclosedInAttrs(tree,paragraphTags[i],"strong")):
               paragraphTags[lastSeenParaIndex] += " <strong> " + \
@@ -231,10 +240,11 @@ def convertToPlainHTML(urlDict,outFileName):
     paragraphList = []
     for i in range(len(paragraphTags)):
       if i not in removeElements:
-        if (isEnclosedInAttrs(tree,paragraphTags[i],"strong")):
-          paragraphList.append("<strong>" + paragraphTags[i] + "</strong>")
-        else:
-          paragraphList.append(paragraphTags[i])
+        if len(paragraphTags[i].strip()) <> 0 : #Check for emtpy paragraph elements
+          if (isEnclosedInAttrs(tree,paragraphTags[i],"strong")):
+            paragraphList.append("<strong>" + paragraphTags[i] + "</strong>")
+          else:
+            paragraphList.append(paragraphTags[i])
 
     del paragraphTags # This list is not needed anymore
     del removeElements
@@ -299,17 +309,15 @@ def convertToPlainHTML(urlDict,outFileName):
 
 # The following piece of code does the following:
 # a. Check that the command line arguments include a file containing the URLS
-# b. Parse the cvs file and convert its contents to a dictionary. The keys of
-#    of the dictionary are the article titles specified by the user. This
-#    implies that no two articles can have the same title. If it does repeat, a
-#    message is returned to the suer while processing continues on the remaining
-#    links including the first one of the duplicates.
+# b. Parse the cvs file and convert its contents into a list of tuples of the
+#    form : (title,URL)
 # c. Log file named WebPageToHTML.log is initialized.
 
 if __name__ == '__main__':
 
     if len(sys.argv) <> 3:
-      print "Error : File containing URL list is not provided.\n" \
+      print "Error : File containing URL list or name of outut file is not " \
+            "provided.\n" \
             "Usage : python webPageToPlainHTML.py file-name-with-urls " \
             "output-file-name\n"
 
@@ -336,28 +344,22 @@ if __name__ == '__main__':
 
     logger.info("Processing URL list file " + sys.argv[1])
 
-    # Convert CSV file to a dictionary object.
-    urlDict = {}
+    # Convert CSV file to a list of tuples of the form (title,url).
+    urlList = []
     try:
+      articleNum = 0
       for line in open(sys.argv[1]).readlines():
         line = line.strip().split("=")
-        if len(line[0]) > 0 and len(line[1])>0:
-          if line[0] not in urlDict.keys():
-            urlDict[line[0].strip()] = line[1].strip()
-          else:
-            print "Title is repeating for two different URLs. Please use unique "\
-                  " titles for each URL. Only the first occurence is being " \
-                  " processed.\n" \
-                  + "Title - " + line[0] \
-                  + "URL 1 - " + urlDict[line[0]] + "\n" \
-                  + "URL 2 - " + line[1]
+        if len(line[0].strip()) > 0 and len(line[1].strip())>0:
+          tup = (line[0].strip(),line[1].strip())
+          urlList.append(tup)
     except:
         print "Error while opening/processing the URL List file. \n"
         sys.exit()
 
 
     # Log number of elements in dictionary
-    logger.info("Number of entries in URL File = "+str(len(urlDict.keys())))
+    logger.info("Number of entries in URL File = "+str(len(urlList)))
 
     # truncate the contents of output file, if it exists.
     # Add the opening <HTML> and <BODY> tags
@@ -373,4 +375,4 @@ if __name__ == '__main__':
       pass
 
     # Call the workhorse method for conversion.
-    convertToPlainHTML(urlDict,outFileName)
+    convertToPlainHTML(urlList,outFileName)
