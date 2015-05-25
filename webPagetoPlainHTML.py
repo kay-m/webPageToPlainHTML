@@ -29,104 +29,12 @@ import unicodedata
 import logging
 import sys
 
-# treeHasParaStartingWith(tree,st):
-# Helper routine to determine is a given string is the beginning of a
-# paragraph. This is needed because the xpath function used in
-# convertToPlainHTML() routine below extracts any sub-tag within the <p>
-# element as a separate item. Examples include content within <strong>
-# and <em> tags. We need a way to merge these elements back together.
-# The other option is to use a regex matcher. I am sticking with this
-# approach for now.
-
-# Preconditions :
-#   Param tree points to an XML tree that contains all of the content
-#   of the web page.
-#   st is a non empty string.
-# Return Value:
-#     1 - If page contains a paragraph element starting with the string st
-#     0 - otherwise
-
-def treeHasParaStartingWith(tree,st):
-
-  # xpath returns an exception for some strings. While these are eventually
-  # written out to the output file, the strings that cause the exception are
-  # logged. The exception may be due to unacceptable unicode characters.
-
-  try:
-
-    param = "//p[starts-with(text(),"
-    param += "'" + st + "'"
-    param += ")]/text()"
-
-    # Extract all <p> elements that start with the string st
-    elem = tree.xpath(param)
-
-    #This is the only way to check that there was a match.
-    if len(elem) > 0:
-      return 1
-    else:
-      #check if it is nestled inside a <strong> tag
-      param = "//p/strong[starts-with(text(),"
-      param += "'" + st + "'"
-      param += ")]/text()"
-
-      elem = tree.xpath(param)
-      if len(elem) > 0:
-        return 1
-      # There is no match for a paragraph starting with st.
-      else:
-        return 0
-  except:
-      logger.warning("Processing param failed. " + param)
-
-
-
-
-
-# def isEnclosedInAttrs(tree,st):
-# Helper routine to determine if string represented by param st is enclosed in
-# specific tags in the web page. The specific tag to look for is specified by
-# the third attribute - attr. This method is needed to re-insert these tags in
-# the final output.
-
-# Preconditions :
-#   Param tree points to an XML tree that contains all of the content
-#   of the web page.
-#   st is a non empty string.
-#   attr is one of the following values - "em", "strong" (this is not vaidated)
-
-# Return Value:
-#     1 - If page contains a attr element nested within a <p> element
-#         starting with the string st
-#     0 - otherwise
-
-def isEnclosedInAttrs(tree,st,attr):
-
-  # xpath may return an exception for some strings. I have not figured out the
-  # reason for this. These strings will be emitted to the final output though.
-  # Strings that cause an exception will be logged. Its possible that the
-  # exception is due to unacceptable unicode characters.
-  try:
-    param = "//p/"
-    param += attr.strip()
-    param += "[starts-with(text(),"
-    param += "'" + st + "'"
-    param += ")]/text()"
-
-    elem = tree.xpath(param)
-    if len(elem) > 0:
-      return 1
-    else:
-      return 0
-  except:
-    logger.warning("Processing param failed. " + param)
-
 
 # def convertToPlainHTML(urlDict):
 # This is the workhorse method that does everything.
 
 # Preconditions:
-#  1. urlLis is a list of tuples containing the URls to be processed. The
+#  1. urlList is a list of tuples containing the URls to be processed. The
 #     tuples are in the following format : (title,URL)
 #  2. outFileName is a valid file name to be used for the output file.
 
@@ -153,10 +61,20 @@ def convertToPlainHTML(urlList,outFileName):
     logger.info("Processing article - " + title)
 
     outStr = "<h1>" + title + "</h1>\n"
-    page = requests.get(URL)
 
-    # Create a HTML document object
-    tree = html.fromstring(page.text)
+    # Its possible that some URLs are not accessible. If an error is
+    # returned while accessing a URL, the page is skipped and execution
+    # proceeds with the next URL in the list.
+
+    try:
+      page = requests.get(URL)
+      page.encoding = 'utf-8'
+      # Create a HTML document object
+      tree = html.fromstring(page.text)
+    except:
+      logger.error("Error while accessing URL - " + URL)
+      continue
+
 
     # Extract Article title subtext Based on an inspection of a few of the
     # articles in the radio sai archive, I see that article subtext is usually
@@ -177,97 +95,87 @@ def convertToPlainHTML(urlList,outFileName):
 
       outStr += "<h2>" + subtextTag[0].strip() + "</h2>\n"
 
-    # I had originally tried to extract selective <p> tags based on its class
-    # attribute. I had to drop this since the articles did not maintain a
-    # consistency of these class attributes. This lead to some content being
-    # missed out. The drawback of the current approach is that some stray
-    # may also get in. I am ok with that. The "descendant-or-self::text()"
-    # param in the xpath paramater ensures that content of child nodes of
-    # the <p> element are also extracted.
+    # Get all <p> nodes from document.
 
-    #paragraphTags = tree.xpath("//p[@class='para' or @class='articlemaintext14' or
-    #                                @class='articlemaintextbold14' or
-    #                                @class='paraboldteal14' or
-    #                                @class='paraboldteal14pt']"
-    #                                 /descendant-or-self::text() |
-    #                                 //p/strong[@class='articlemaintext14']
-    #                                 /descendant-or-self::text()")
+    pElemList = tree.xpath("//p")
+
+    # Each element of of pElemList represents one <p></p> node.
+    # node.getchildren() will return a list of all child nodes within the <p>
+    # node. These could be <span>, <em>, <bold> or <br> elements.
+    # node.iterText() will return an iterator that can used to get the text
+    # within each node.
 
 
-    paragraphTags = tree.xpath("//p/descendant-or-self::text() | "\
-                               "//p/strong[@class='articlemaintext14'] "\
-                               "/descendant-or-self::text()")
+    for pItem in pElemList:
+      outStr += "<p>"
+      # Add the <strong> and <em> tags back to the text.
+      index = 0
+      for child in pItem.getchildren():
+        eTag = pItem.getchildren()[index].tag
 
-    # paragraphTags is a list of strings. Each element represents the content
-    # inside a <p> or <p>/<strong> element.
+        # eTag need not be a string always. Check for it
+        if (isinstance(eTag, basestring)) and (eTag.upper() in ['EM','STRONG']):
+          eTagOpen = "<" + eTag + ">"
+          eTagClose = "</" + eTag + ">"
 
-    # Merge the list items such that all text corresponding to one paragraph
-    # are in one element. I check if each element of the list is the starting
-    # text for a <p> element. If yes, leave it alone. If not, the element
-    # represents text inside a <strong> or <em> element. Mark these for
-    # removal.
-
-    removeElements = [] # Will hold indexes of elements to be removed.
-
-    lastSeenParaIndex = -1 #Index of last seen element that begins a paragraph.
-
-    for i in range(len(paragraphTags)):
-      if (treeHasParaStartingWith(tree,paragraphTags[i]) == 0):
-          removeElements.append(i)
-
-          # Sanity check that there is indeed an enclosing paragraph and
-          # that there is some text inside the element.
-          if (lastSeenParaIndex > -1) and (len(paragraphTags[i].strip()) > 0):
-            # Check of element is withing <strong> or <em> elements. If yes,
-            # add those tags to retain formatting.
-            if (isEnclosedInAttrs(tree,paragraphTags[i],"strong")):
-              paragraphTags[lastSeenParaIndex] += " <strong> " + \
-                                                   paragraphTags[i] + \
-                                                   "</strong>"
-            else:
-              if (isEnclosedInAttrs(tree,paragraphTags[i],"em ")):
-                paragraphTags[lastSeenParaIndex] += " <em>" + \
-                                                    paragraphTags[i] + \
-                                                    "</em>"
-              else:
-                paragraphTags[lastSeenParaIndex] += " " + paragraphTags[i]
-      else:
-          lastSeenParaIndex = i
-
-    # Create a new list  =
-    # paragraphTags - list of items to be removed since they have been merged
-    #                 with other elements
-    paragraphList = []
-    for i in range(len(paragraphTags)):
-      if i not in removeElements:
-        if len(paragraphTags[i].strip()) <> 0 : #Check for emtpy paragraph elements
-          if (isEnclosedInAttrs(tree,paragraphTags[i],"strong")):
-            paragraphList.append("<strong>" + paragraphTags[i] + "</strong>")
-          else:
-            paragraphList.append(paragraphTags[i])
-
-    del paragraphTags # This list is not needed anymore
-    del removeElements
+          if pItem.getchildren()[index].text is not None:
+            pItem.getchildren()[index].text = eTagOpen + \
+                                              pItem.getchildren()[index].text + \
+                                              eTagClose
+          # It could also be a case where there are sub tags within a <em> or
+          # <strong tag>. Am handling only one level of nesting since it seems
+          # realistic at this point.
+          for ix in range(len(pItem.getchildren()[index].getchildren())):
+            if pItem.getchildren()[index].getchildren()[ix].text is not None:
+              pItem.getchildren()[index].getchildren()[ix].text = \
+                eTagOpen + \
+                pItem.getchildren()[index].getchildren()[ix].text + \
+                eTagClose
 
 
-   # There is one last piece of trickery that is needed. Some articles end with
-   # a note asking readers to write to h2h@radiosai.org. The email id is wrapped
-   # inside javascript code that is also emitted. The following piece of code
-   # identifies this scenario and replaces with a template line.
-   # Should improve this to read from end of list
-    endOfArticleIndex = 0
-    for i in range(len(paragraphList)):
-      paragraphList[i] = paragraphList[i].strip()
-      if paragraphList[i].startswith(u'Dear Reader, did this article'):
-        paragraphList[i] = "Dear Reader, did this article inspire you in any way?" \
-                           " Would you like to share you feelings with us? "\
-                           " Please write to us  at h2h@radiosai.org."
-        endOfArticleIndex = i
-      if len(paragraphList[i]) > 0:
-        outStr += "<p>" + paragraphList[i] + "</p>\n"
+          # Finally at to the trailing text portin of the original <em>
+          # <strong> tag - <strong> blah blah <em> he he </em> goodbye </strong>
+          # This is for the adding the strong tag for the text goodbye in the
+          # above example.
+          if pItem.getchildren()[index].tail is not None:
+             pItem.getchildren()[index].tail = eTagOpen + \
+                                              pItem.getchildren()[index].tail + \
+                                              eTagClose
 
-      if endOfArticleIndex > 0:
-        break
+        # remove content inside script nodes
+        if (isinstance(eTag, basestring)) and (eTag.upper() == 'SCRIPT'):
+          pItem.getchildren()[index].text = ""
+
+        # One more crazy thing to check for. There are some places where a <br/>
+        # element is used in the middle of a paragraph to emit a line break.
+        # As of now, I am emitting it as is. Ideally, I would like to correct it
+        # by ending the paragraph element at that point and starting a new
+        # paragraph from that point onward.
+        if (isinstance(eTag, basestring)) and (eTag.upper() == 'BR'):
+          pItem.getchildren()[index].text = "</br>"
+
+        index = index + 1
+      # end of loop
+
+      # Combine the text within each child node.
+      for txt in pItem.itertext():
+        # Check for embedded java script code that masks the radiosai email id:
+        # Some articles end with a note asking readers to write to
+        # h2h@radiosai.org. This email id is wrapped inside javascript code that
+        # is also emitted.
+        if len(txt.strip()) > 0:
+          if txt.startswith(u'Dear Reader, did this article'):
+            txt = "Dear Reader, did this article inspire you in any way?" \
+                  " Would you like to share you feelings with us? "\
+                  " Please write to us  at h2h@radiosai.org "
+
+          txt = txt.replace("[email protected]","")
+          txt = txt.replace("/* */","")
+
+          outStr = outStr + txt
+
+      outStr = outStr + "</p>\n"
+
 
     #Create outfile and write to it.
     # The content read is usually in iso-8859-1 encoding. Opening a file the
