@@ -105,7 +105,7 @@ def convertToPlainHTML(urlList,outFileName):
     # node.iterText() will return an iterator that can used to get the text
     # within each node.
 
-
+    endOfArticle = 0
     for pItem in pElemList:
       outStr += "<p>"
       # Add the <strong> and <em> tags back to the text.
@@ -118,13 +118,19 @@ def convertToPlainHTML(urlList,outFileName):
           eTagOpen = "<" + eTag + ">"
           eTagClose = "</" + eTag + ">"
 
-          if pItem.getchildren()[index].text is not None:
+          if (pItem.getchildren()[index].text is not None) and \
+              len(pItem.getchildren()[index].text.strip()) > 0:
             pItem.getchildren()[index].text = eTagOpen + \
                                               pItem.getchildren()[index].text + \
                                               eTagClose
+          ''' Commenting this out for now. The tail thing is not working as
+          # expected
           # It could also be a case where there are sub tags within a <em> or
           # <strong tag>. Am handling only one level of nesting since it seems
           # realistic at this point.
+          # Child nodes of the em/strong tag =
+          #                      pItem.getchildren()[index].getchildren()
+
           for ix in range(len(pItem.getchildren()[index].getchildren())):
             if pItem.getchildren()[index].getchildren()[ix].text is not None:
               pItem.getchildren()[index].getchildren()[ix].text = \
@@ -138,10 +144,10 @@ def convertToPlainHTML(urlList,outFileName):
           # This is for the adding the strong tag for the text goodbye in the
           # above example.
           if pItem.getchildren()[index].tail is not None:
-             pItem.getchildren()[index].tail = eTagOpen + \
+              pItem.getchildren()[index].tail = eTagOpen + \
                                               pItem.getchildren()[index].tail + \
                                               eTagClose
-
+         '''
         # remove content inside script nodes
         if (isinstance(eTag, basestring)) and (eTag.upper() == 'SCRIPT'):
           pItem.getchildren()[index].text = ""
@@ -158,6 +164,7 @@ def convertToPlainHTML(urlList,outFileName):
       # end of loop
 
       # Combine the text within each child node.
+
       for txt in pItem.itertext():
         # Check for embedded java script code that masks the radiosai email id:
         # Some articles end with a note asking readers to write to
@@ -168,9 +175,15 @@ def convertToPlainHTML(urlList,outFileName):
             txt = "Dear Reader, did this article inspire you in any way?" \
                   " Would you like to share you feelings with us? "\
                   " Please write to us  at h2h@radiosai.org "
+            endOfArticle = 1
 
-          txt = txt.replace("[email protected]","")
-          txt = txt.replace("/* */","")
+          if (endOfArticle == 1):
+            uStr = u'[email\xa0protected]'
+            txt = txt.replace(uStr,"")
+            # remove a length piece of comment. Though this is not in final
+            # output, its dirty junk!
+            if txt.startswith("\n/*"):
+              txt = ""
 
           outStr = outStr + txt
 
